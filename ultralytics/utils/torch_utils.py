@@ -63,7 +63,7 @@ if WINDOWS and check_version(TORCH_VERSION, "==2.4.0"):  # reject version 2.4.0 
 def torch_distributed_zero_first(local_rank: int):
     """Ensure all processes in distributed training wait for the local master (rank 0) to complete a task first."""
     initialized = dist.is_available() and dist.is_initialized()
-    use_ids = initialized and dist.get_backend() == "nccl"
+    use_ids = initialized and dist.get_backend() in {"nccl", "hccl"}
 
     if initialized and local_rank not in {-1, 0}:
         dist.barrier(device_ids=[local_rank]) if use_ids else dist.barrier()
@@ -262,6 +262,8 @@ def time_sync():
     """Return PyTorch-accurate time."""
     if torch.cuda.is_available():
         torch.cuda.synchronize()
+    elif hasattr(torch, "npu") and torch.npu.is_available():
+        torch.npu.synchronize()
     return time.time()
 
 
@@ -614,6 +616,9 @@ def init_seeds(seed=0, deterministic=False):
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)  # for Multi-GPU, exception safe
+    if hasattr(torch, "npu"):
+        torch.npu.manual_seed(seed)
+        torch.npu.manual_seed_all(seed)
     # torch.backends.cudnn.benchmark = True  # AutoBatch problem https://github.com/ultralytics/yolov5/issues/9287
     if deterministic:
         if TORCH_2_0:
@@ -791,7 +796,13 @@ def cuda_memory_usage(device=None):
         (dict): A dictionary with a key 'memory' initialized to 0, which will be updated with the reserved memory.
     """
     cuda_info = dict(memory=0)
-    if torch.cuda.is_available():
+    if hasattr(torch, "npu") and torch.npu.is_available():
+        torch.npu.empty_cache()
+        try:
+            yield cuda_info
+        finally:
+            cuda_info["memory"] = torch.npu.memory_reserved(device)
+    elif torch.cuda.is_available():
         torch.cuda.empty_cache()
         try:
             yield cuda_info
@@ -834,7 +845,10 @@ def profile_ops(input, ops, n=10, device=None, max_num_obj=0):
         f"{'input':>24s}{'output':>24s}"
     )
     gc.collect()  # attempt to free unused memory
-    torch.cuda.empty_cache()
+    if hasattr(torch, "npu") and torch.npu.is_available():
+        torch.npu.empty_cache()
+    else:
+        torch.cuda.empty_cache()
     for x in input if isinstance(input, list) else [input]:
         x = x.to(device)
         x.requires_grad = True
@@ -882,7 +896,10 @@ def profile_ops(input, ops, n=10, device=None, max_num_obj=0):
                 results.append(None)
             finally:
                 gc.collect()  # attempt to free unused memory
-                torch.cuda.empty_cache()
+                if hasattr(torch, "npu") and torch.npu.is_available():
+                    torch.npu.empty_cache()
+                else:
+                    torch.cuda.empty_cache()
     return results
 
 
@@ -995,17 +1012,19 @@ def attempt_compile(
     if warmup:
         # Use a single dummy tensor to build the graph shape state and reduce first-iteration latency
         dummy = torch.zeros(1, 3, imgsz, imgsz, device=device)
-        if use_autocast and device.type == "cuda":
+        if use_autocast and device.type in {"cuda", "npu"}:
             dummy = dummy.half()
         t1 = time.perf_counter()
         with torch.inference_mode():
-            if use_autocast and device.type in {"cuda", "mps"}:
+            if use_autocast and device.type in {"cuda", "mps", "npu"}:
                 with torch.autocast(device.type):
                     _ = model(dummy)
             else:
                 _ = model(dummy)
         if device.type == "cuda":
             torch.cuda.synchronize(device)
+        elif device.type == "npu":
+            torch.npu.synchronize(device)
         t_warm = time.perf_counter() - t1
 
     total = t_compile + t_warm

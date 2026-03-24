@@ -156,7 +156,7 @@ class BaseTrainer:
             print_args(vars(self.args))
 
         # Device
-        if self.device.type in {"cpu", "mps"}:
+        if self.device.type in {"cpu", "mps", "npu"}:
             self.args.workers = 0  # faster CPU training as time dominated by inference, not dataloading
 
         # Callbacks - initialize early so on_pretrain_routine_start can capture original args.data
@@ -166,7 +166,7 @@ class BaseTrainer:
             world_size = len(self.args.device.split(","))
         elif isinstance(self.args.device, (tuple, list)):  # i.e. device=[0, 1, 2, 3] (multi-GPU from CLI is list)
             world_size = len(self.args.device)
-        elif self.args.device in {"cpu", "mps"}:  # i.e. device='cpu' or 'mps'
+        elif self.args.device in {"cpu", "mps", "npu"}:  # i.e. device='cpu', 'mps', or 'npu'
             world_size = 0
         elif torch.cuda.is_available():  # i.e. device=None or device='' or device=number
             world_size = 1  # default to device 0
@@ -253,11 +253,17 @@ class BaseTrainer:
 
     def _setup_ddp(self):
         """Initialize and set the DistributedDataParallel parameters for training."""
-        torch.cuda.set_device(RANK)
-        self.device = torch.device("cuda", RANK)
-        os.environ["TORCH_NCCL_BLOCKING_WAIT"] = "1"  # set to enforce timeout
+        if self.device.type == "npu":
+            torch.npu.set_device(RANK)
+            self.device = torch.device("npu", RANK)
+            backend = "hccl"
+        else:
+            torch.cuda.set_device(RANK)
+            self.device = torch.device("cuda", RANK)
+            os.environ["TORCH_NCCL_BLOCKING_WAIT"] = "1"  # set to enforce timeout
+            backend = "nccl" if dist.is_nccl_available() else "gloo"
         dist.init_process_group(
-            backend="nccl" if dist.is_nccl_available() else "gloo",
+            backend=backend,
             timeout=timedelta(seconds=10800),  # 3 hours
             rank=RANK,
             world_size=self.world_size,
@@ -330,8 +336,11 @@ class BaseTrainer:
         if RANK > -1 and self.world_size > 1:  # DDP
             dist.broadcast(self.amp.int(), src=0)  # broadcast from rank 0 to all other ranks; gloo errors with boolean
         self.amp = bool(self.amp)  # as boolean
+        device_type = self.device.type if self.device.type != "npu" else "cpu"  # NPU doesn't support GradScaler
         self.scaler = (
-            torch.amp.GradScaler("cuda", enabled=self.amp) if TORCH_2_4 else torch.cuda.amp.GradScaler(enabled=self.amp)
+            torch.amp.GradScaler(device_type, enabled=self.amp)
+            if TORCH_2_4
+            else torch.cuda.amp.GradScaler(enabled=self.amp)
         )
         if self.world_size > 1:
             self.model = nn.parallel.DistributedDataParallel(self.model, device_ids=[RANK], find_unused_parameters=True)
@@ -584,6 +593,10 @@ class BaseTrainer:
             memory = torch.mps.driver_allocated_memory()
             if fraction:
                 return __import__("psutil").virtual_memory().percent / 100
+        elif self.device.type == "npu":
+            memory = torch.npu.memory_reserved()
+            if fraction:
+                total = torch.npu.get_device_properties(self.device).total_memory
         elif self.device.type != "cpu":
             memory = torch.cuda.memory_reserved()
             if fraction:
@@ -599,6 +612,8 @@ class BaseTrainer:
         gc.collect()
         if self.device.type == "mps":
             torch.mps.empty_cache()
+        elif self.device.type == "npu":
+            torch.npu.empty_cache()
         elif self.device.type == "cpu":
             return
         else:

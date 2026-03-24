@@ -47,7 +47,7 @@ class Profile(contextlib.ContextDecorator):
         """
         self.t = t
         self.device = device
-        self.cuda = bool(device and str(device).startswith("cuda"))
+        self.cuda = bool(device and str(device).startswith(("cuda", "npu")))
 
     def __enter__(self):
         """Start timing."""
@@ -66,7 +66,10 @@ class Profile(contextlib.ContextDecorator):
     def time(self):
         """Get current time with CUDA synchronization if applicable."""
         if self.cuda:
-            torch.cuda.synchronize(self.device)
+            if str(self.device).startswith("npu"):
+                torch.npu.synchronize(self.device)
+            else:
+                torch.cuda.synchronize(self.device)
         return time.perf_counter()
 
 

@@ -65,7 +65,7 @@ def autobatch(
     prefix = colorstr("AutoBatch: ")
     LOGGER.info(f"{prefix}Computing optimal batch size for imgsz={imgsz} at {fraction * 100}% CUDA memory utilization.")
     device = next(model.parameters()).device  # get model device
-    if device.type in {"cpu", "mps"}:
+    if device.type in {"cpu", "mps", "npu"}:
         LOGGER.warning(f"{prefix}intended for CUDA devices, using default batch-size {batch_size}")
         return batch_size
     if torch.backends.cudnn.benchmark:
@@ -116,4 +116,7 @@ def autobatch(
         LOGGER.warning(f"{prefix}error detected: {e},  using default batch-size {batch_size}.")
         return batch_size
     finally:
-        torch.cuda.empty_cache()
+        if hasattr(torch, "npu") and torch.npu.is_available():
+            torch.npu.empty_cache()
+        else:
+            torch.cuda.empty_cache()
