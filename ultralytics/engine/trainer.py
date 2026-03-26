@@ -125,9 +125,13 @@ class BaseTrainer:
         self.hub_session = overrides.pop("session", None)  # HUB
         self.args = get_cfg(cfg, overrides)
         self.check_resume(overrides)
+        _device_arg = self.args.device  # save before select_device normalizes it to a single device
         self.device = select_device(self.args.device)
         # Update "-1" devices so post-training val does not repeat search
         self.args.device = os.getenv("CUDA_VISIBLE_DEVICES") if "cuda" in str(self.device) else str(self.device)
+        # Restore original multi-device string for world_size calculation (e.g. 'npu:0,npu:1')
+        if isinstance(_device_arg, str) and "," in _device_arg:
+            self.args.device = _device_arg
         self.validator = None
         self.metrics = None
         self.plots = {}
@@ -163,11 +167,13 @@ class BaseTrainer:
         self.callbacks = _callbacks or callbacks.get_default_callbacks()
 
         if isinstance(self.args.device, str) and len(self.args.device):  # i.e. device='0' or device='0,1,2,3'
-            world_size = len(self.args.device.split(","))
+            _d = self.args.device.lower()
+            if _d in {"cpu", "mps", "npu"}:
+                world_size = 0
+            else:
+                world_size = len(_d.split(","))
         elif isinstance(self.args.device, (tuple, list)):  # i.e. device=[0, 1, 2, 3] (multi-GPU from CLI is list)
             world_size = len(self.args.device)
-        elif self.args.device in {"cpu", "mps", "npu"}:  # i.e. device='cpu', 'mps', or 'npu'
-            world_size = 0
         elif torch.cuda.is_available():  # i.e. device=None or device='' or device=number
             world_size = 1  # default to device 0
         else:  # i.e. device=None or device=''

@@ -160,7 +160,7 @@ def select_device(device="", newline=False, verbose=True):
     Notes:
         Sets the 'CUDA_VISIBLE_DEVICES' environment variable for specifying which GPUs to use.
     """
-    if isinstance(device, torch.device) or str(device).startswith(("tpu", "intel", "vulkan")):
+    if isinstance(device, torch.device) or (isinstance(device, str) and device.startswith(("tpu", "intel", "vulkan"))):
         return device
 
     s = f"Ultralytics {__version__} 🚀 Python-{PYTHON_VERSION} torch-{TORCH_VERSION} "
@@ -178,14 +178,18 @@ def select_device(device="", newline=False, verbose=True):
         if not hasattr(torch, "npu") or not torch.npu.is_available():
             raise ValueError(f"Invalid NPU 'device={device}' requested. Ascend NPU is not available.")
 
-        # Parse 'npu' or 'npu:N' (multi-NPU not yet supported)
-        suffix = device[3:]
-        if suffix == "":
-            idx = 0
-        elif suffix.startswith(":") and suffix[1:].isdigit():
-            idx = int(suffix[1:])
+        # Multi-NPU DDP: 'npu:0,npu:1' — select device 0 for this process; _setup_ddp assigns per-rank device
+        npu_devices = [d.strip() for d in device.split(",")]
+        if len(npu_devices) > 1:
+            idx = 0  # rank 0 device; DDP will reassign per rank in _setup_ddp
         else:
-            raise ValueError(f"Invalid NPU 'device={device}' format. Use 'npu' or 'npu:0'.")
+            suffix = npu_devices[0][3:]
+            if suffix == "":
+                idx = 0
+            elif suffix.startswith(":") and suffix[1:].isdigit():
+                idx = int(suffix[1:])
+            else:
+                raise ValueError(f"Invalid NPU 'device={device}' format. Use 'npu', 'npu:0', or 'npu:0,npu:1'.")
 
         n = torch.npu.device_count()
         if idx >= n:
@@ -193,7 +197,10 @@ def select_device(device="", newline=False, verbose=True):
 
         torch.npu.set_device(idx)
         if verbose:
-            LOGGER.info(f"{s}NPU:{idx} ({torch.npu.get_device_name(idx)})\n")
+            if len(npu_devices) > 1:
+                LOGGER.info(f"{s}NPU:{','.join(str(i) for i in range(len(npu_devices)))} (DDP)\n")
+            else:
+                LOGGER.info(f"{s}NPU:{idx} ({torch.npu.get_device_name(idx)})\n")
         return torch.device(f"npu:{idx}")
 
     # Auto-select GPUs
