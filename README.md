@@ -21,6 +21,20 @@
 </div>
 <br>
 
+## Ascend NPU Migration / 昇腾 NPU 迁移
+
+This fork adds Huawei Ascend NPU (昇腾) support for training and inference, targeting the Ascend 910B with CANN 8.3 and `torch_npu`.
+
+- Migration notes (changes, fixes, deployment): [`migration_npu.md`](./migration_npu.md)
+- VOC2012 detection task (configs + label conversion): [`tasks/voc/`](./tasks/voc/)
+
+本分支为 Ultralytics YOLO 添加了华为昇腾 NPU 的训练与推理支持，适配 Ascend 910B（CANN 8.3 + torch_npu）。
+
+- 迁移说明（代码改动、问题修复、部署路径）：[`migration_npu.md`](./migration_npu.md)
+- VOC2012 目标检测任务（训练配置 + 标注转换）：[`tasks/voc/`](./tasks/voc/)
+
+---
+
 [Ultralytics](https://www.ultralytics.com/) creates cutting-edge, state-of-the-art (SOTA) [YOLO models](https://www.ultralytics.com/yolo) built on years of foundational research in computer vision and AI. Constantly updated for performance and flexibility, our models are **fast**, **accurate**, and **easy to use**. They excel at [object detection](https://docs.ultralytics.com/tasks/detect/), [tracking](https://docs.ultralytics.com/modes/track/), [instance segmentation](https://docs.ultralytics.com/tasks/segment/), [image classification](https://docs.ultralytics.com/tasks/classify/), and [pose estimation](https://docs.ultralytics.com/tasks/pose/) tasks.
 
 Find detailed documentation in the [Ultralytics Docs](https://docs.ultralytics.com/). Get support via [GitHub Issues](https://github.com/ultralytics/ultralytics/issues/new/choose). Join discussions on [Discord](https://discord.com/invite/ultralytics), [Reddit](https://www.reddit.com/r/ultralytics/), and the [Ultralytics Community Forums](https://community.ultralytics.com/)!

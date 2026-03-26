@@ -1,0 +1,127 @@
+# Object Detection Training Template
+# Docs: https://docs.ultralytics.com/usage/cfg/
+#
+# ── Usage ──────────────────────────────────────────────────────────────────────
+# Basic:
+#   yolo train cfg=train_detect_template.yaml
+#
+# Override individual args on the CLI (takes precedence over this file):
+#   yolo train cfg=train_detect_template.yaml model=yolo11s.pt epochs=300
+#
+# Python API:
+#   from ultralytics import YOLO
+#   model = YOLO("yolo11n.pt")
+#   model.train(cfg="train_detect_template.yaml", data="coco8.yaml")
+#
+# Resume an interrupted run:
+#   yolo train cfg=train_detect_template.yaml resume=True
+#
+# Multi-GPU (DDP):
+#   yolo train cfg=train_detect_template.yaml device=0,1,2,3
+#   (ultralytics spawns torchrun internally — do NOT call torchrun manually)
+#
+# Ascend NPU (requires torch_npu + CANN toolkit):
+#   Single NPU:
+#     yolo train cfg=train_detect_template.yaml device=npu
+#     yolo train cfg=train_detect_template.yaml device=npu:0
+#   Multi-NPU DDP (hccl backend, ultralytics spawns torchrun internally):
+#     yolo train cfg=train_detect_template.yaml device=npu:0,npu:1
+#   Note: AMP is auto-disabled on NPU (GradScaler not supported)
+#
+# Validation:
+#   yolo val model=runs/detect/exp/weights/best.pt data=my_voc2012.yaml device=npu
+#
+# TensorBoard (run `yolo settings tensorboard=True` once to enable):
+#   tensorboard --logdir runs/detect --port 6006
+#
+# Fine-tune (freeze backbone, train head only):
+#   yolo train cfg=train_detect_template.yaml freeze=10 lr0=0.001
+#
+# Results are saved to:
+#   <project>/<name>/
+#     weights/best.pt   ← best checkpoint by val mAP
+#     weights/last.pt   ← latest checkpoint
+#     args.yaml         ← full config snapshot
+#     results.csv       ← per-epoch metrics
+# ───────────────────────────────────────────────────────────────────────────────
+
+task: detect
+mode: train
+
+# ── Model & Data ───────────────────────────────────────────────────────────────
+model: yolo11n.pt              # pretrained checkpoint (.pt) or architecture (.yaml)
+data: coco8.yaml           # dataset config; see ultralytics/cfg/datasets/
+pretrained: True           # use pretrained weights from model path above
+
+# ── Run Identity ───────────────────────────────────────────────────────────────
+project: runs/detect       # root results directory
+name: exp                  # experiment name → saved to project/name/
+exist_ok: False            # set True to overwrite existing project/name
+
+# ── Training Schedule ──────────────────────────────────────────────────────────
+epochs: 100
+patience: 50               # early stopping: halt after N epochs with no improvement
+# time:                    # optional: max training hours (overrides epochs)
+
+# ── Batch & Device ─────────────────────────────────────────────────────────────
+batch: 8                   # int for fixed size, or float (0.0–1.0) for AutoBatch; reduce if OOM
+imgsz: 640                 # input image size (square); use [h, w] for non-square
+device:                    # 0/1/2… for GPU, 'cpu', 'mps', 'npu'/'npu:0' for Ascend NPU, 'npu:0,npu:1' for multi-NPU DDP
+workers: 8                 # dataloader workers per process
+amp: True                  # Automatic Mixed Precision (FP16); auto-disabled on NPU (GradScaler not supported)
+
+# ── Checkpointing ──────────────────────────────────────────────────────────────
+save: True                 # save best.pt and last.pt
+save_period: -1            # also save every N epochs; -1 = disabled
+resume: False              # resume from last checkpoint in the run dir
+
+# ── Optimizer ──────────────────────────────────────────────────────────────────
+optimizer: auto            # SGD | Adam | AdamW | NAdam | RAdam | RMSProp | auto
+lr0: 0.01                  # initial learning rate
+lrf: 0.01                  # final LR = lr0 * lrf
+momentum: 0.937            # SGD momentum / Adam beta1
+weight_decay: 0.0005       # L2 regularization
+warmup_epochs: 3.0         # linear warmup duration (fractions ok)
+warmup_momentum: 0.8       # momentum at start of warmup
+warmup_bias_lr: 0.1        # bias LR at start of warmup
+cos_lr: False              # cosine LR decay (vs linear)
+nbs: 64                    # nominal batch size for gradient scaling
+
+# ── Detection Loss Weights ─────────────────────────────────────────────────────
+box: 7.5                   # bounding-box regression loss
+cls: 0.5                   # classification loss
+dfl: 1.5                   # distribution focal loss
+
+# ── Validation ─────────────────────────────────────────────────────────────────
+val: True                  # run val each epoch
+iou: 0.7                   # IoU threshold for NMS
+max_det: 300               # max detections per image
+conf:                      # val confidence threshold (default 0.001)
+plots: True                # save metric plots and sample predictions
+
+# ── Augmentation ───────────────────────────────────────────────────────────────
+hsv_h: 0.015               # hue shift fraction
+hsv_s: 0.7                 # saturation shift fraction
+hsv_v: 0.4                 # brightness shift fraction
+degrees: 0.0               # rotation range (±deg)
+translate: 0.1             # translation fraction
+scale: 0.5                 # scale gain
+shear: 0.0                 # shear degrees
+perspective: 0.0           # perspective warp (0–0.001)
+flipud: 0.0                # vertical flip probability
+fliplr: 0.5                # horizontal flip probability
+mosaic: 1.0                # mosaic probability (disable with 0.0)
+close_mosaic: 10           # disable mosaic for final N epochs
+mixup: 0.0                 # MixUp probability
+cutmix: 0.0                # CutMix probability
+copy_paste: 0.0            # copy-paste probability (useful for dense scenes)
+
+# ── Misc ───────────────────────────────────────────────────────────────────────
+seed: 0                    # random seed for reproducibility
+deterministic: True
+single_cls: False          # treat all classes as one (binary detection)
+rect: False                # rectangular batches (faster, less padding)
+fraction: 1.0              # fraction of dataset to use (1.0 = all)
+cache: False               # cache images in 'ram' or 'disk'; False = off
+freeze:                    # freeze first N layers (int) or layer indices (list)
+verbose: True
